@@ -18,6 +18,7 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.view.Choreographer;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -43,8 +44,6 @@ import com.winlator.cmod.xserver.XServer;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Timer;
-import java.util.TimerTask;
 
 public class InputControlsView extends View {
     public static final float DEFAULT_OVERLAY_OPACITY = 0.4f;
@@ -66,7 +65,7 @@ public class InputControlsView extends View {
     private TouchpadView touchpadView;
     private XServer xServer;
     private final Bitmap[] icons = new Bitmap[17];
-    private Timer mouseMoveTimer;
+    private boolean mouseMoveCallbackActive = false;
     private final PointF mouseMoveOffset = new PointF();
     private boolean showTouchscreenControls = true;
     private int activeTouchPointerCount = 0;
@@ -406,8 +405,7 @@ public class InputControlsView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
-        if (mouseMoveTimer != null)
-            mouseMoveTimer.cancel();
+        mouseMoveCallbackActive = false;
         super.onDetachedFromWindow();
     }
 
@@ -415,25 +413,40 @@ public class InputControlsView extends View {
         return (int)Mathf.roundTo(getHeight(), snappingSize);
     }
 
+    // Vsync-synced replacement for the old free-running java.util.Timer.
+    // Choreographer ties each tick to the actual display refresh instead of
+    // an independent 16ms wall-clock thread, so it can never drift ahead of
+    // what's actually being rendered and can't "catch up" with a burst of
+    // queued ticks the way Timer does when a tick overruns.
+    private final Choreographer.FrameCallback mouseMoveFrameCallback = new Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            if (!mouseMoveCallbackActive || xServer == null || profile == null) return;
+
+            if (mouseMoveOffset.x != 0 || mouseMoveOffset.y != 0) {
+                WinHandler winHandler = xServer.getWinHandler();
+                final float cursorSpeed = profile.getCursorSpeed();
+                if (xServer.isRelativeMouseMovement())
+                    winHandler.mouseEvent(MouseEventFlags.MOVE,
+                        (int) (mouseMoveOffset.x * cursorSpeed * 10),
+                        (int) (mouseMoveOffset.y * cursorSpeed * 10), 0);
+                else
+                    xServer.injectPointerMoveDelta(
+                        (int) (mouseMoveOffset.x * cursorSpeed * 10),
+                        (int) (mouseMoveOffset.y * cursorSpeed * 10)
+                    );
+            }
+
+            if (mouseMoveCallbackActive) {
+                Choreographer.getInstance().postFrameCallback(this);
+            }
+        }
+    };
+
     private void createMouseMoveTimer() {
-        WinHandler winHandler = xServer.getWinHandler();
-        if (mouseMoveTimer == null && profile != null) {
-            final float cursorSpeed = profile.getCursorSpeed();
-            mouseMoveTimer = new Timer();
-            mouseMoveTimer.schedule(new TimerTask() {
-                @Override
-                public void run() {
-                    if (mouseMoveOffset.x != 0 || mouseMoveOffset.y != 0) {// Only move if there's an offset
-                        if (xServer.isRelativeMouseMovement())
-                            winHandler.mouseEvent(MouseEventFlags.MOVE, (int) (mouseMoveOffset.x * cursorSpeed * 10), (int) (mouseMoveOffset.y * cursorSpeed * 10), 0);
-                        else
-                            xServer.injectPointerMoveDelta(
-                                (int) (mouseMoveOffset.x * cursorSpeed * 10),
-                                (int) (mouseMoveOffset.y * cursorSpeed * 10)
-                            );
-                    }
-                }
-            }, 0, 1000 / 60); // 60 FPS
+        if (!mouseMoveCallbackActive && profile != null) {
+            mouseMoveCallbackActive = true;
+            Choreographer.getInstance().postFrameCallback(mouseMoveFrameCallback);
         }
     }
 
@@ -863,4 +876,4 @@ public class InputControlsView extends View {
         }
         return icons[id];
     }
-}
+                                    }
