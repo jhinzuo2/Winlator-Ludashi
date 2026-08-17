@@ -218,8 +218,57 @@ public class WinHandler {
         });
     }
 
+    // Coalesces back-to-back MOVE ticks so a slow consumer (lock contention,
+    // GC pause, etc.) never causes a queued backlog / catch-up burst.
+    private volatile Runnable pendingMoveAction = null;
+    private int pendingDx = 0, pendingDy = 0;
+
     public void mouseEvent(int flags, int dx, int dy, int wheelDelta) {
         if (!initReceived) return;
+
+        // Cursor-position feedback is only needed when the OS cursor is
+        // actually visible/absolute. In relative-mouse mode (the mode the
+        // OSC look-stick and FPS mouselook always use) nothing renders the
+        // cursor, so requesting it back just costs a round trip into Wine
+        // and back for no visible benefit.
+        boolean isMove = (flags & MouseEventFlags.MOVE) != 0;
+        boolean needsFeedback = isMove && activity.getXServer() != null
+                && !activity.getXServer().isRelativeMouseMovement();
+
+        if (isMove && !needsFeedback) {
+            // Merge with any not-yet-sent move instead of queueing a new one.
+            synchronized (actions) {
+                pendingDx += dx;
+                pendingDy += dy;
+                if (pendingMoveAction == null) {
+                    final int fFlags = flags;
+                    final int fWheel = wheelDelta;
+                    pendingMoveAction = () -> {
+                        int sendDx, sendDy;
+                        synchronized (actions) {
+                            sendDx = pendingDx;
+                            sendDy = pendingDy;
+                            pendingDx = 0;
+                            pendingDy = 0;
+                            pendingMoveAction = null;
+                        }
+                        sendData.rewind();
+                        sendData.put(RequestCodes.MOUSE_EVENT);
+                        sendData.putInt(10);
+                        sendData.putInt(fFlags);
+                        sendData.putShort((short) sendDx);
+                        sendData.putShort((short) sendDy);
+                        sendData.putShort((short) fWheel);
+                        sendData.put((byte) 0); // no feedback needed
+                        sendPacket(CLIENT_PORT);
+                    };
+                    actions.add(pendingMoveAction);
+                    actions.notify();
+                }
+            }
+            return;
+        }
+
         addAction(() -> {
             sendData.rewind();
             sendData.put(RequestCodes.MOUSE_EVENT);
@@ -228,7 +277,7 @@ public class WinHandler {
             sendData.putShort((short) dx);
             sendData.putShort((short) dy);
             sendData.putShort((short) wheelDelta);
-            sendData.put((byte) ((flags & MouseEventFlags.MOVE) != 0 ? 1 : 0)); // cursor pos feedback
+            sendData.put((byte) (needsFeedback ? 1 : 0)); // cursor pos feedback
             sendPacket(CLIENT_PORT);
         });
     }
@@ -498,7 +547,11 @@ public class WinHandler {
                 XServer xServer = activity.getXServer();
                 xServer.pointer.setX(x);
                 xServer.pointer.setY(y);
-                activity.getXServerView().requestRender();
+                // Don't force a render off the normal render-loop cadence here.
+                // The main render loop already redraws on its own schedule and
+                // will pick up the new pointer position on its next frame; a
+                // synchronous requestRender() from this background thread was
+                // the second half of the OSC feedback loop causing stutter.
                 break;
             }
             default: {
@@ -676,4 +729,4 @@ public class WinHandler {
     public void setInputType(byte inputType) {
         this.inputType = inputType;
     }
-}
+                            }
