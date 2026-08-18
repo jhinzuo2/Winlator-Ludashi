@@ -81,10 +81,10 @@ public class ControlElement {
     private boolean selected = false;
     private boolean toggleSwitch = false;
     private float opacity = 1.0f;
-    private int customColor = 0; // 0 = usa a cor padrão do tema (WINLATOR_BLUE)
+    private int customColor = 0; // 0 = usa a cor padrÃ£o do tema (WINLATOR_BLUE)
     private ColorFilter customColorFilter = null;
     private ColorFilter themeColorFilter = null;
-    private int themeColorFilterColor = 1; // valor inválido proposital pra forçar a 1ª construção
+    private int themeColorFilterColor = 1; // valor invÃ¡lido proposital pra forÃ§ar a 1Âª construÃ§Ã£o
     private boolean mouseMoveMode = false;
     private int currentPointerId = -1;
     private final Rect boundingBox = new Rect();
@@ -433,17 +433,17 @@ public class ControlElement {
         return ((a & 0xff) << 24) | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
     }
 
-    // Combina a opacidade própria do elemento com a opacidade global da view (overlay_opacity).
-    // Em modo de edição, o valor é limitado a um mínimo de 35% para o controle nunca ficar
-    // invisível/inselecionável enquanto está sendo editado.
+    // Combina a opacidade prÃ³pria do elemento com a opacidade global da view (overlay_opacity).
+    // Em modo de ediÃ§Ã£o, o valor Ã© limitado a um mÃ­nimo de 35% para o controle nunca ficar
+    // invisÃ­vel/inselecionÃ¡vel enquanto estÃ¡ sendo editado.
     private float getEffectiveOpacity() {
         float combined = opacity * inputControlsView.getOverlayOpacity();
         return inputControlsView.isEditMode() ? Math.max(0.35f, combined) : combined;
     }
 
-    // Agora é um método de instância (antes era static) para que toda chamada existente que já
+    // Agora Ã© um mÃ©todo de instÃ¢ncia (antes era static) para que toda chamada existente que jÃ¡
     // passava por withAlpha(...) passe a respeitar a opacidade automaticamente. Isso corrige o
-    // problema de opacidade não fazer efeito nos controles.
+    // problema de opacidade nÃ£o fazer efeito nos controles.
     private int withAlpha(int color, int alpha) {
         int scaledAlpha = (int)(alpha * getEffectiveOpacity());
         if (scaledAlpha < 0) scaledAlpha = 0;
@@ -455,8 +455,8 @@ public class ControlElement {
     private static final int DARK_SURFACE = 0xff06111d;
     private static final int EDGE_SOFT = 0xff7fa8d8;
 
-    // Cor de tema deste elemento: usa a cor customizada do próprio elemento se houver;
-    // senão, a cor do esquema (definida pra todo o perfil); senão, o azul padrão do app.
+    // Cor de tema deste elemento: usa a cor customizada do prÃ³prio elemento se houver;
+    // senÃ£o, a cor do esquema (definida pra todo o perfil); senÃ£o, o azul padrÃ£o do app.
     private int getThemeColor() {
         if (customColor != 0) return customColor;
         ControlsProfile profile = inputControlsView.getProfile();
@@ -677,8 +677,8 @@ public class ControlElement {
                 path.addRoundRect(boundingBox.left, boundingBox.top, boundingBox.right, boundingBox.bottom, radius, radius, Path.Direction.CW);
                 canvas.clipPath(path);
 
-                // Destaca apenas o segmento que está realmente sendo pressionado no momento
-                // (em vez de iluminar a faixa toda), igual ao feedback visual dos outros botões.
+                // Destaca apenas o segmento que estÃ¡ realmente sendo pressionado no momento
+                // (em vez de iluminar a faixa toda), igual ao feedback visual dos outros botÃµes.
                 boolean isPressingSegment = currentPointerId != -1 && !scroller.isScrolling();
                 Binding pressedBinding = scroller.getBinding();
 
@@ -775,11 +775,11 @@ public class ControlElement {
         int iconAlpha = (int)(230 * getEffectiveOpacity());
         paint.setAlpha(Math.max(0, Math.min(255, iconAlpha)));
 
-        // O filtro fixo da view (inputControlsView.getColorFilter()) é sempre azul e não
+        // O filtro fixo da view (inputControlsView.getColorFilter()) Ã© sempre azul e nÃ£o
         // sabia nada sobre customColor nem sobre a cor do esquema - por isso Start/Select
-        // (que são desenhados como ícone/bitmap, não como forma vetorial) ficavam presos
+        // (que sÃ£o desenhados como Ã­cone/bitmap, nÃ£o como forma vetorial) ficavam presos
         // no azul mesmo trocando a cor do tema. Agora deriva sempre de getThemeColor(),
-        // só reconstruindo o filtro quando a cor resolvida muda (evita recriar a cada frame).
+        // sÃ³ reconstruindo o filtro quando a cor resolvida muda (evita recriar a cada frame).
         if (customColorFilter != null) {
             paint.setColorFilter(customColorFilter);
         }
@@ -842,8 +842,8 @@ public class ControlElement {
         return !toggleSwitch && (binding == Binding.GAMEPAD_BUTTON_L3 || binding == Binding.GAMEPAD_BUTTON_R3);
     }
 
-    // Dispara/solta TODOS os bindings não-NONE do botão (suporta combos com mais de 2 teclas,
-    // em vez de disparar só os índices 0 e 1 fixos).
+    // Dispara/solta TODOS os bindings nÃ£o-NONE do botÃ£o (suporta combos com mais de 2 teclas,
+    // em vez de disparar sÃ³ os Ã­ndices 0 e 1 fixos).
     private void setButtonBindingsActive(boolean active) {
         for (int i = 0; i < bindings.length; i++) {
             if (bindings[i] != Binding.NONE) inputControlsView.handleInputEvent(bindings[i], active);
@@ -996,7 +996,12 @@ public class ControlElement {
                     if (cursorDx != 0 || cursorDy != 0)  {
                         XServer xServer = inputControlsView.getXServer();
                         if (xServer.isRelativeMouseMovement())
-                            xServer.getWinHandler().mouseEvent(MouseEventFlags.MOVE, cursorDx, cursorDy, 0);
+                            // Accumulate and flush once per rendered frame instead of
+                            // firing a synchronous mouseEvent()/UDP round trip on every
+                            // raw touch sample - touch panels commonly report well above
+                            // the render/vsync rate, and each unthrottled call here was
+                            // starving the emulated game's CPU thread during OSC mouse use.
+                            inputControlsView.accumulateRawMouseMove(cursorDx, cursorDy);
                         else
                             inputControlsView.getXServer().injectPointerMoveDelta(cursorDx, cursorDy);
                     }
@@ -1050,9 +1055,9 @@ public class ControlElement {
                 }
             }
             else if (type == Type.RANGE_BUTTON || type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD) {
-                // Para STICK/TRACKPAD com binding analógico (gamepad), o reset correto é
-                // handleStickInput(0,0) — não handleInputEvent, que é a API digital.
-                // Sem isso o eixo fica no último valor e o personagem continua andando
+                // Para STICK/TRACKPAD com binding analÃ³gico (gamepad), o reset correto Ã©
+                // handleStickInput(0,0) â€” nÃ£o handleInputEvent, que Ã© a API digital.
+                // Sem isso o eixo fica no Ãºltimo valor e o personagem continua andando
                 // depois de soltar o dedo ("sticky sticks").
                 if ((type == Type.STICK || type == Type.TRACKPAD) && getBindingAt(0).isGamepad()) {
                     inputControlsView.handleStickInput(getBindingAt(0), 0f, 0f);
