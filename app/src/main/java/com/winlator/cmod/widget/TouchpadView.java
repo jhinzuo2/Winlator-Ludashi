@@ -10,6 +10,7 @@ import android.util.Log;
 import android.os.Handler;
 import android.view.InputDevice;
 import android.view.MotionEvent;
+import android.view.Choreographer;
 import android.view.PointerIcon;
 import android.view.View;
 import android.view.ViewGroup;
@@ -474,6 +475,34 @@ public class TouchpadView extends View {
         releasePointerButtonRight(finger1);
     }
 
+    private int pendingMouseDx = 0, pendingMouseDy = 0;
+    private boolean mouseFlushPending = false;
+
+    // Accumulates touch-driven relative mouse deltas and flushes them once
+    // per rendered frame via Choreographer, instead of firing a synchronous
+    // mouseEvent()/UDP round trip on every raw touch sample. Touch panels
+    // commonly report well above the render/vsync rate; calling mouseEvent()
+    // that often was starving the emulated game's CPU thread whenever the
+    // OSC touchpad-mouse was dragged, causing FPS to crater while GPU
+    // utilization dropped (a CPU-starvation signature, not a GPU bottleneck).
+    private void queueRelativeMouseMove(int dx, int dy) {
+        pendingMouseDx += dx;
+        pendingMouseDy += dy;
+        if (!mouseFlushPending) {
+            mouseFlushPending = true;
+            Choreographer.getInstance().postFrameCallback(frameTimeNanos -> {
+                int fdx = pendingMouseDx;
+                int fdy = pendingMouseDy;
+                pendingMouseDx = 0;
+                pendingMouseDy = 0;
+                mouseFlushPending = false;
+                if ((fdx != 0 || fdy != 0) && xServer != null) {
+                    xServer.getWinHandler().mouseEvent(MouseEventFlags.MOVE, fdx, fdy, 0);
+                }
+            });
+        }
+    }
+
     private void handleFingerMove(Finger finger1) {
         boolean skipPointerMove = false;
 
@@ -513,8 +542,7 @@ public class TouchpadView extends View {
                     xServer.injectPointerMove(finger1.x, finger1.y);
             }
             else if (xServer.isRelativeMouseMovement()) {
-                WinHandler winHandler = xServer.getWinHandler();
-                winHandler.mouseEvent(MouseEventFlags.MOVE, dx, dy, 0);
+                queueRelativeMouseMove(dx, dy);
             }
             else xServer.injectPointerMoveDelta(dx, dy);
         }
@@ -566,9 +594,9 @@ public class TouchpadView extends View {
     private int lastMouseMoveX;
     private int lastMouseMoveY;
 
-    // Permite que um ControlElement comum (um botão) atue como uma pequena área de
+    // Permite que um ControlElement comum (um botÃ£o) atue como uma pequena Ã¡rea de
     // arrasto para mover o cursor do mouse, sem precisar de um TRACKPAD dedicado.
-    // Espelha a mesma lógica de delta/aceleração usada pelos gestos normais do touchpad.
+    // Espelha a mesma lÃ³gica de delta/aceleraÃ§Ã£o usada pelos gestos normais do touchpad.
     public void mouseMove(float x, float y, int action) {
         float[] transformedPoint = XForm.transformPoint(xform, x, y);
         int tx = (int)transformedPoint[0];
