@@ -65,7 +65,17 @@ public class InputControlsView extends View {
     private TouchpadView touchpadView;
     private XServer xServer;
     private final Bitmap[] icons = new Bitmap[17];
-    private boolean mouseMoveCallbackActive = false;
+    private int pendingTrackpadDx = 0, pendingTrackpadDy = 0;
+
+    // Called from ControlElement's TRACKPAD/mouse handling on every raw touch
+    // sample. Instead of firing a synchronous mouseEvent()/UDP round trip per
+    // sample (touch panels commonly report well above the render/vsync rate),
+    // this just accumulates the delta; mouseMoveFrameCallback flushes it once
+    // per rendered frame, same as the stick-based look path.
+    public void accumulateRawMouseMove(int dx, int dy) {
+        pendingTrackpadDx += dx;
+        pendingTrackpadDy += dy;
+    }
     private final PointF mouseMoveOffset = new PointF();
     private boolean showTouchscreenControls = true;
     private int activeTouchPointerCount = 0;
@@ -201,7 +211,13 @@ public class InputControlsView extends View {
 
         if (profile != null && showTouchscreenControls && !isFocusedOnStick()) {
             if (!profile.isElementsLoaded()) profile.loadElements(this);
+            Rect clip = canvas.getClipBounds();
             for (ControlElement element : profile.getElements()) {
+                // Skip elements that fall entirely outside the invalidated
+                // region. On a partial invalidate() (e.g. dragging the look
+                // stick), this avoids redrawing every other button/icon in
+                // the profile every single frame.
+                if (clip != null && !Rect.intersects(clip, element.getBoundingBox())) continue;
                 element.draw(canvas);
             }
         }
@@ -217,7 +233,7 @@ public class InputControlsView extends View {
             float centerY = boundingBox.centerY();
 
             stickElement.setCurrentPosition(centerX, centerY); // Reset to the center of the bounding box
-            invalidate(); // Redraw the stick in the centered position
+            invalidateElement(boundingBox); // Redraw only the stick's own area, not the whole overlay
         }
     }
 
@@ -229,7 +245,7 @@ public class InputControlsView extends View {
         stickElement.setX((int) x);
         stickElement.setY((int) y);
         stickElement.setScale(scale);
-        invalidate(); // Force the view to redraw with the stick
+        invalidate(); // one-time setup, full redraw is fine here
     }
 
 
@@ -237,7 +253,11 @@ public class InputControlsView extends View {
         if (stickElement != null) {
             stickElement.getCurrentPosition().x = x;  // Update the thumbstick's position
             stickElement.getCurrentPosition().y = y;  // Update the thumbstick's position
-            invalidate(); // Redraw the view
+            // Only redraw the stick's own bounding box, not the entire overlay
+            // (which would otherwise re-run onDraw's full loop over every OSC
+            // element - every button, spell icon, etc. - on the UI thread,
+            // once per drag frame, starving the emulated game's CPU thread).
+            invalidateElement(stickElement.getBoundingBox());
         }
     }
 
@@ -435,6 +455,14 @@ public class InputControlsView extends View {
                         (int) (mouseMoveOffset.x * cursorSpeed * 10),
                         (int) (mouseMoveOffset.y * cursorSpeed * 10)
                     );
+            }
+
+            if (pendingTrackpadDx != 0 || pendingTrackpadDy != 0) {
+                int dx = pendingTrackpadDx;
+                int dy = pendingTrackpadDy;
+                pendingTrackpadDx = 0;
+                pendingTrackpadDy = 0;
+                xServer.getWinHandler().mouseEvent(MouseEventFlags.MOVE, dx, dy, 0);
             }
 
             if (mouseMoveCallbackActive) {
@@ -876,4 +904,4 @@ public class InputControlsView extends View {
         }
         return icons[id];
     }
-                                    }
+}
