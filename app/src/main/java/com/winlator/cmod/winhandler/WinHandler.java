@@ -729,4 +729,4 @@ public class WinHandler {
     public void setInputType(byte inputType) {
         this.inputType = inputType;
     }
-                            }
+                }
