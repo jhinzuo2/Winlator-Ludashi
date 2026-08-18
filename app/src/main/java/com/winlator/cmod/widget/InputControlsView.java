@@ -66,6 +66,7 @@ public class InputControlsView extends View {
     private XServer xServer;
     private final Bitmap[] icons = new Bitmap[17];
     private int pendingTrackpadDx = 0, pendingTrackpadDy = 0;
+    private boolean mouseMoveCallbackActive = false;
 
     // Called from ControlElement's TRACKPAD/mouse handling on every raw touch
     // sample. Instead of firing a synchronous mouseEvent()/UDP round trip per
@@ -904,4 +905,4 @@ public class InputControlsView extends View {
         }
         return icons[id];
     }
-}
+        }
